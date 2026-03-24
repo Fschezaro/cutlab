@@ -622,7 +622,7 @@
     <div class="sidebar-section">
       <div class="sidebar-label">Exportar</div>
       <div class="export-options">
-        <button class="format-btn selected" data-fmt="video" onclick="selectFormat(this,'video')">
+        <button class="format-btn selected" data-fmt="mp4" onclick="selectFormat(this,'mp4')">
           <span class="fmt-icon">🎬</span>MP4
         </button>
         <button class="format-btn" data-fmt="audio" onclick="selectFormat(this,'audio')">
@@ -707,7 +707,7 @@ let isDragging = false, dragStart = null;
 let dragMode = null;
 let dragMoved = false;
 let playheadRAF = null;
-let selectedFormat = 'video';
+let selectedFormat = 'mp4';
 let audioCtx = null;
 let selectionPlaybackHandler = null;
 const SEEK_STEP_SECONDS = 0.2;
@@ -777,21 +777,27 @@ async function decodeWaveform(file) {
   const ctx = waveformCanvas;
   const W = waveformContainer.offsetWidth;
   const H = 72;
+  if (!W) return;
   ctx.width = W;
   ctx.height = H;
   const c = ctx.getContext('2d');
+  if (!c) return;
   c.clearRect(0, 0, W, H);
 
   // Draw placeholder grid while decoding
   drawPlaceholderWave(c, W, H);
 
+  let ab;
   try {
-    if (!audioCtx) audioCtx = new AudioContext();
-    const ab = await file.arrayBuffer();
+    const AudioCtxCtor = window.AudioContext || window.webkitAudioContext;
+    if (!audioCtx && AudioCtxCtor) audioCtx = new AudioCtxCtor();
+    ab = await file.arrayBuffer();
+    if (!audioCtx) throw new Error('AudioContext indisponível');
     audioBuf = await audioCtx.decodeAudioData(ab);
     drawWaveform(c, audioBuf, W, H);
   } catch {
-    drawPlaceholderWave(c, W, H);
+    if (!ab) ab = await file.arrayBuffer();
+    drawByteFallbackWaveform(c, new Uint8Array(ab), W, H);
   }
 }
 
@@ -830,6 +836,41 @@ function drawWaveform(c, buf, W, H) {
     grad.addColorStop(1, '#6b6b80');
     c.fillStyle = grad;
     c.fillRect(x, mid + max * mid * 0.85, 1, (min - max) * mid * 0.85 || 1);
+  }
+
+  reDrawCutLines();
+}
+
+function drawByteFallbackWaveform(c, bytes, W, H) {
+  c.fillStyle = '#0a0a0c';
+  c.fillRect(0, 0, W, H);
+
+  const mid = H / 2;
+  c.strokeStyle = '#2a2a36';
+  c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(0, mid);
+  c.lineTo(W, mid);
+  c.stroke();
+
+  if (!bytes.length) return;
+
+  const step = Math.max(1, Math.floor(bytes.length / W));
+  for (let x = 0; x < W; x++) {
+    let peak = 0;
+    const start = x * step;
+    const end = Math.min(bytes.length, start + step);
+    for (let i = start; i < end; i++) {
+      const centered = (bytes[i] - 128) / 128;
+      const amp = Math.abs(centered);
+      if (amp > peak) peak = amp;
+    }
+    const h = Math.max(1, peak * (H * 0.45));
+    const grad = c.createLinearGradient(x, mid - h, x, mid + h);
+    grad.addColorStop(0, '#e8ff47');
+    grad.addColorStop(1, '#6b6b80');
+    c.fillStyle = grad;
+    c.fillRect(x, mid - h, 1, h * 2);
   }
 
   reDrawCutLines();
@@ -1295,70 +1336,151 @@ async function exportAudioOnly(start, end, fmt) {
 }
 
 async function exportVideoSegment(start, end, fmt) {
-  // Use MediaRecorder + offscreen approach
+  // Record from canvas (video) + WebAudio mix (audio) for stable timestamps.
   updateProgress('Configurando gravação...', 10);
 
-  const supported = typeof MediaRecorder !== 'undefined' &&
-    (MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ||
-     MediaRecorder.isTypeSupported('video/webm'));
-
-  if (!supported) {
+  if (typeof MediaRecorder === 'undefined') {
     hideProgress();
     toast('Exportação de vídeo não suportada neste navegador.');
     return;
   }
 
-  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-    ? 'video/webm;codecs=vp9' : 'video/webm';
+  const ext = 'webm';
+  const preferredMimeTypes = [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  const mimeType = preferredMimeTypes.find(t => MediaRecorder.isTypeSupported(t));
 
-  // Clone and prep media element
-  const tmpVideo = document.createElement('video');
-  tmpVideo.src = URL.createObjectURL(mediaFile);
-  tmpVideo.muted = false;
-  tmpVideo.volume = 1;
-  await new Promise(r => tmpVideo.addEventListener('loadedmetadata', r, { once: true }));
-
-  const stream = tmpVideo.captureStream ? tmpVideo.captureStream() : tmpVideo.mozCaptureStream();
-  if (!stream) {
-    hideProgress();
-    return toast('captureStream não suportado.');
+  // Browser MP4 via MediaRecorder usually produces fragmented files with inconsistent metadata.
+  if (fmt === 'mp4') {
+    toast('MP4 no navegador pode sair bugado. Exportando em WebM estável.');
   }
 
-  const chunks = [];
-  const rec = new MediaRecorder(stream, { mimeType });
-  rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-
-  tmpVideo.currentTime = start;
-  await new Promise(r => tmpVideo.addEventListener('seeked', r, { once: true }));
-  updateProgress('Gravando segmento...', 30);
-
-  rec.start(100);
-  tmpVideo.play();
-
-  await new Promise(resolve => {
-    const check = setInterval(() => {
-      const pct = ((tmpVideo.currentTime - start) / (end - start)) * 60 + 30;
-      updateProgress('Gravando...', Math.min(89, pct));
-      if (tmpVideo.currentTime >= end - 0.05) {
-        clearInterval(check);
-        resolve();
-      }
-    }, 100);
-  });
-
-  tmpVideo.pause();
-  rec.stop();
-  updateProgress('Finalizando...', 95);
-
-  await new Promise(r => rec.onstop = r);
-  const blob = new Blob(chunks, { type: mimeType });
-
-  updateProgress('Concluído!', 100);
-  setTimeout(() => {
+  if (!mimeType) {
     hideProgress();
-    downloadBlob(blob, `cutlab_video_${ts()}.webm`);
-    toast('Vídeo exportado!');
-  }, 400);
+    toast('Formato de exportação não suportado neste navegador.');
+    return;
+  }
+
+  const mediaUrl = URL.createObjectURL(mediaFile);
+  const tmpVideo = document.createElement('video');
+  const canvas = document.createElement('canvas');
+  let audioCtxLocal = null;
+  let sourceNode = null;
+  let destinationNode = null;
+  let mergedStream = null;
+
+  try {
+    tmpVideo.src = mediaUrl;
+    tmpVideo.muted = false;
+    tmpVideo.volume = 1;
+    tmpVideo.playsInline = true;
+    await new Promise(r => tmpVideo.addEventListener('loadedmetadata', r, { once: true }));
+
+    const safeEnd = Math.min(end, tmpVideo.duration || end);
+    if (safeEnd - start <= 0.02) {
+      hideProgress();
+      toast('Seleção inválida para exportação.');
+      return;
+    }
+
+    const width = tmpVideo.videoWidth || 1280;
+    const height = tmpVideo.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
+    const drawCtx = canvas.getContext('2d');
+    if (!drawCtx) {
+      hideProgress();
+      toast('Falha ao criar canvas para exportação.');
+      return;
+    }
+
+    // Use manual frame pumping for deterministic timeline/FPS.
+    const canvasStream = canvas.captureStream(0);
+    const tracks = [...canvasStream.getVideoTracks()];
+    const canvasVideoTrack = tracks[0] || null;
+
+    const AudioCtxCtor = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtxCtor) {
+      audioCtxLocal = new AudioCtxCtor();
+      if (audioCtxLocal.state === 'suspended') {
+        await audioCtxLocal.resume();
+      }
+      sourceNode = audioCtxLocal.createMediaElementSource(tmpVideo);
+      destinationNode = audioCtxLocal.createMediaStreamDestination();
+      sourceNode.connect(destinationNode);
+      tracks.push(...destinationNode.stream.getAudioTracks());
+    }
+
+    mergedStream = new MediaStream(tracks);
+    const chunks = [];
+    const rec = new MediaRecorder(mergedStream, { mimeType, videoBitsPerSecond: 5_000_000 });
+    rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+    const targetFps = 30;
+    const frameMs = 1000 / targetFps;
+    let frameTimer = 0;
+    const drawFrame = () => {
+      if (tmpVideo.readyState >= 2) {
+        drawCtx.drawImage(tmpVideo, 0, 0, width, height);
+        if (canvasVideoTrack && typeof canvasVideoTrack.requestFrame === 'function') {
+          canvasVideoTrack.requestFrame();
+        }
+      }
+    };
+
+    tmpVideo.currentTime = start;
+    await new Promise(r => tmpVideo.addEventListener('seeked', r, { once: true }));
+    drawFrame();
+
+    updateProgress('Gravando segmento...', 30);
+
+    const stopped = new Promise((resolve, reject) => {
+      rec.onstop = resolve;
+      rec.onerror = ev => reject(ev.error || new Error('Falha ao gravar mídia.'));
+    });
+
+    rec.start();
+    await tmpVideo.play();
+    frameTimer = setInterval(drawFrame, frameMs);
+
+    await new Promise(resolve => {
+      const check = setInterval(() => {
+        const pct = ((tmpVideo.currentTime - start) / (safeEnd - start)) * 60 + 30;
+        updateProgress('Gravando...', Math.min(89, pct));
+        if (tmpVideo.currentTime >= safeEnd - 0.03 || tmpVideo.ended) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 80);
+    });
+
+    tmpVideo.pause();
+    clearInterval(frameTimer);
+    drawFrame();
+    rec.stop();
+    updateProgress('Finalizando...', 95);
+
+    await stopped;
+    const blob = new Blob(chunks, { type: mimeType });
+
+    updateProgress('Concluído!', 100);
+    setTimeout(() => {
+      hideProgress();
+      downloadBlob(blob, `cutlab_video_${ts()}.${ext}`);
+      toast(`Vídeo exportado em ${ext.toUpperCase()}!`);
+    }, 400);
+  } finally {
+    if (mergedStream) {
+      mergedStream.getTracks().forEach(t => t.stop());
+    }
+    if (sourceNode) sourceNode.disconnect();
+    if (destinationNode) destinationNode.disconnect();
+    if (audioCtxLocal) audioCtxLocal.close();
+    URL.revokeObjectURL(mediaUrl);
+  }
 }
 
 // --- WAV ENCODER ---
