@@ -432,6 +432,38 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
+    gap: 10px;
+  }
+
+  .timeline-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .zoom-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-strong);
+    padding: 4px 10px;
+  }
+
+  .zoom-control label,
+  .zoom-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+  }
+
+  .zoom-control input[type=range] {
+    width: 92px;
+    accent-color: #3f3c37;
+    height: 2px;
   }
 
   .timeline-title {
@@ -459,8 +491,16 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: #fdfbf6;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     cursor: crosshair;
+    scrollbar-width: thin;
+  }
+
+  .timeline-track {
+    position: relative;
+    height: 100%;
+    min-width: 100%;
   }
 
   canvas#waveform {
@@ -699,6 +739,25 @@
       grid-template-columns: 1fr 1fr;
     }
 
+    .timeline-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .timeline-tools {
+      justify-content: space-between;
+    }
+
+    .zoom-control {
+      flex: 1;
+      justify-content: space-between;
+    }
+
+    .zoom-control input[type=range] {
+      width: 100%;
+      max-width: 110px;
+    }
+
     .timeline-hint {
       text-align: left;
     }
@@ -794,14 +853,23 @@
   <div class="timeline-area">
     <div class="timeline-header">
       <span class="timeline-title">Timeline</span>
-      <span class="cuts-count" id="cutsCount" style="display:none"></span>
+      <div class="timeline-tools">
+        <div class="zoom-control">
+          <label for="zoomRange">Zoom</label>
+          <input type="range" id="zoomRange" min="1" max="8" step="0.5" value="1">
+          <span class="zoom-value" id="zoomValue">1.0×</span>
+        </div>
+        <span class="cuts-count" id="cutsCount" style="display:none"></span>
+      </div>
     </div>
     <div class="waveform-container" id="waveformContainer">
-      <canvas id="waveform"></canvas>
-      <div class="selection-region" id="selectionRegion"></div>
-      <div class="selection-handle" id="selectionStartHandle" title="Arraste para ajustar o início"></div>
-      <div class="selection-handle" id="selectionEndHandle" title="Arraste para ajustar o fim"></div>
-      <div class="playhead" id="playhead" style="left:0; display:none"></div>
+      <div class="timeline-track" id="timelineTrack">
+        <canvas id="waveform"></canvas>
+        <div class="selection-region" id="selectionRegion"></div>
+        <div class="selection-handle" id="selectionStartHandle" title="Arraste para ajustar o início"></div>
+        <div class="selection-handle" id="selectionEndHandle" title="Arraste para ajustar o fim"></div>
+        <div class="playhead" id="playhead" style="left:0; display:none"></div>
+      </div>
     </div>
     <div class="timeline-hint">Clique para posicionar · Arraste para selecionar · Arraste as alças para ajustar início/fim</div>
   </div>
@@ -830,6 +898,7 @@ const audioEl = document.getElementById('audioEl');
 const timeDisplay = document.getElementById('timeDisplay');
 const waveformCanvas = document.getElementById('waveform');
 const waveformContainer = document.getElementById('waveformContainer');
+const timelineTrack = document.getElementById('timelineTrack');
 const selectionRegion = document.getElementById('selectionRegion');
 const selectionStartHandle = document.getElementById('selectionStartHandle');
 const selectionEndHandle = document.getElementById('selectionEndHandle');
@@ -846,6 +915,8 @@ const selEnd = document.getElementById('selEnd');
 const selDur = document.getElementById('selDur');
 const speedRange = document.getElementById('speedRange');
 const speedVal = document.getElementById('speedVal');
+const zoomRange = document.getElementById('zoomRange');
+const zoomValue = document.getElementById('zoomValue');
 
 let mediaEl = null;
 let mediaFile = null;
@@ -862,6 +933,7 @@ let selectionPlaybackHandler = null;
 const SEEK_STEP_SECONDS = 0.2;
 const SELECTION_MIN_SECONDS = 0.05;
 let suppressNextPlayButtonClick = false;
+let timelineZoom = 1;
 
 // --- FORMAT SELECT ---
 function selectFormat(btn, fmt) {
@@ -902,6 +974,7 @@ function loadFile(file) {
   btnExport.disabled = false;
   cuts = [];
   selA = selB = null;
+  waveformContainer.scrollLeft = 0;
   selectionRegion.style.display = 'none';
   selectionStartHandle.style.display = 'none';
   selectionEndHandle.style.display = 'none';
@@ -921,11 +994,36 @@ function loadFile(file) {
   toast('Arquivo carregado!');
 }
 
+function setTimelineTrackSize() {
+  const baseWidth = Math.max(1, waveformContainer.clientWidth);
+  const trackWidth = Math.max(baseWidth, Math.round(baseWidth * timelineZoom));
+  timelineTrack.style.width = trackWidth + 'px';
+}
+
+function applyTimelineZoom(nextZoom, shouldRedraw = true) {
+  timelineZoom = Math.max(1, Math.min(8, nextZoom));
+  if (zoomRange) zoomRange.value = String(timelineZoom);
+  if (zoomValue) zoomValue.textContent = timelineZoom.toFixed(1) + '×';
+  setTimelineTrackSize();
+  if (shouldRedraw && mediaFile) decodeWaveform(mediaFile);
+  updateSelRegion();
+  updatePlayhead();
+}
+
+if (zoomRange) {
+  zoomRange.addEventListener('input', () => {
+    applyTimelineZoom(parseFloat(zoomRange.value), true);
+  });
+}
+
+applyTimelineZoom(parseFloat(zoomRange?.value || '1'), false);
+
 // --- WAVEFORM ---
 async function decodeWaveform(file) {
   const ctx = waveformCanvas;
-  const W = waveformContainer.offsetWidth;
-  const H = 72;
+  setTimelineTrackSize();
+  const W = Math.max(1, timelineTrack.clientWidth);
+  const H = Math.max(60, waveformContainer.clientHeight);
   if (!W) return;
   ctx.width = W;
   ctx.height = H;
@@ -1048,7 +1146,24 @@ function updatePlayhead() {
   if (!mediaEl) return;
   const pct = mediaEl.duration ? mediaEl.currentTime / mediaEl.duration : 0;
   playheadEl.style.left = (pct * 100) + '%';
+  ensurePlayheadVisible();
   updateTimeDisplay();
+}
+
+function ensurePlayheadVisible() {
+  if (!mediaEl || !mediaEl.duration) return;
+  const rect = waveformContainer.getBoundingClientRect();
+  const trackRect = timelineTrack.getBoundingClientRect();
+  const playheadX = (mediaEl.currentTime / mediaEl.duration) * timelineTrack.clientWidth;
+  const visibleLeft = waveformContainer.scrollLeft;
+  const visibleRight = visibleLeft + waveformContainer.clientWidth;
+  const margin = Math.max(24, rect.width * 0.08);
+  if (playheadX < visibleLeft + margin) {
+    waveformContainer.scrollLeft = Math.max(0, playheadX - margin);
+  } else if (playheadX > visibleRight - margin) {
+    waveformContainer.scrollLeft = Math.max(0, playheadX - waveformContainer.clientWidth + margin);
+  }
+  if (!trackRect.width) return;
 }
 
 function updateTimeDisplay() {
@@ -1295,7 +1410,7 @@ window.addEventListener('mouseup', () => {
 });
 
 function getPct(e) {
-  const rect = waveformContainer.getBoundingClientRect();
+  const rect = timelineTrack.getBoundingClientRect();
   return (e.clientX - rect.left) / rect.width;
 }
 
@@ -1350,7 +1465,7 @@ function renderCuts() {
     marker.className = 'cut-marker';
     marker.style.left = pct + '%';
     marker.title = `Corte ${i+1}: ${fmtTime(t)}`;
-    waveformContainer.appendChild(marker);
+    timelineTrack.appendChild(marker);
   });
 
   // Update list
@@ -1714,7 +1829,7 @@ function toast(msg) {
 
 // Resize waveform on window resize
 window.addEventListener('resize', () => {
-  if (mediaFile) decodeWaveform(mediaFile);
+  applyTimelineZoom(timelineZoom, Boolean(mediaFile));
 });
 </script>
 </body>
