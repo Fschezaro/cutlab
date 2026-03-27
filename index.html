@@ -8,19 +8,22 @@
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap');
 
   :root {
-    --bg: #f6f4ef;
-    --bg-soft: #eeebe3;
-    --surface: #fffdf8;
-    --surface-strong: #ffffff;
-    --panel: #f8f5ee;
-    --border: #d9d3c8;
-    --text: #1f1e1b;
-    --muted: #79746a;
-    --accent: #1f1e1b;
-    --accent-soft: #ebe8df;
-    --cut-color: #8d4b3a;
-    --playhead: #1f1e1b;
-    --shadow: 0 20px 40px rgba(29, 26, 18, 0.08);
+    color-scheme: dark;
+    --bg: #0f1115;
+    --bg-soft: #12151b;
+    --surface: #161a22;
+    --surface-strong: #1a1f29;
+    --panel: #141922;
+    --border: #2a3342;
+    --text: #edf2ff;
+    --muted: #a5b1c7;
+    --accent: #edf2ff;
+    --accent-soft: #252d3b;
+    --cut-color: #ff7e52;
+    --playhead: #f4f7ff;
+    --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --on-accent: #0f1115;
+    --surface-hover: #202736;
     --radius-lg: 22px;
     --radius-md: 14px;
     --radius-sm: 10px;
@@ -41,8 +44,8 @@
     overflow: hidden;
     user-select: none;
     background:
-      radial-gradient(circle at 12% 18%, #fefcf8 0, #fefcf800 35%),
-      radial-gradient(circle at 82% 82%, #e7e2d7 0, #e7e2d700 40%),
+      radial-gradient(circle at 14% 16%, #1a233433 0, #1a233400 42%),
+      radial-gradient(circle at 84% 80%, #2530472e 0, #25304700 44%),
       linear-gradient(135deg, var(--bg) 0%, var(--bg-soft) 100%);
     animation: pageIn .55s ease both;
   }
@@ -83,7 +86,7 @@
   .file-btn {
     border: 1px solid var(--text);
     background: var(--text);
-    color: #fdfbf5;
+    color: var(--on-accent);
     border-radius: 999px;
     padding: 10px 16px;
     font-family: 'IBM Plex Mono', monospace;
@@ -95,7 +98,7 @@
     text-transform: uppercase;
     cursor: pointer;
     transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease;
-    box-shadow: 0 8px 14px rgba(31, 30, 27, .2);
+    box-shadow: 0 8px 14px rgba(0, 0, 0, .35);
   }
 
   .file-btn:hover {
@@ -118,7 +121,7 @@
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background: linear-gradient(180deg, #fffefb 0%, #f6f1e7 100%);
+    background: linear-gradient(180deg, #171d28 0%, #121821 100%);
     box-shadow: var(--shadow);
     display: flex;
     align-items: center;
@@ -130,7 +133,7 @@
     width: 100%;
     max-width: 760px;
     aspect-ratio: 16 / 9;
-    border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, #ffffff);
+    border: 1.5px dashed color-mix(in srgb, var(--muted) 58%, transparent);
     border-radius: calc(var(--radius-lg) - 6px);
     color: var(--muted);
     display: flex;
@@ -142,7 +145,7 @@
     font-family: 'IBM Plex Mono', monospace;
     font-size: 12px;
     cursor: pointer;
-    background: linear-gradient(180deg, #ffffff70 0%, #ffffff25 100%);
+    background: linear-gradient(180deg, #24304747 0%, #1a21322e 100%);
     transition: border-color .2s ease, color .2s ease, transform .2s ease;
   }
 
@@ -264,7 +267,7 @@
   .btn.primary {
     background: var(--text);
     border-color: var(--text);
-    color: #fdfbf5;
+    color: var(--on-accent);
   }
 
   .btn.primary:hover {
@@ -355,8 +358,8 @@
   }
 
   .cut-item:hover {
-    border-color: #a39a88;
-    background: #fff;
+    border-color: color-mix(in srgb, var(--border) 45%, var(--text));
+    background: var(--surface-hover);
   }
 
   .cut-item.active-segment {
@@ -490,7 +493,7 @@
     height: 84px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    background: #fdfbf6;
+    background: #131923;
     overflow-x: auto;
     overflow-y: hidden;
     cursor: crosshair;
@@ -596,7 +599,7 @@
     display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(24, 22, 17, .48);
+    background: rgba(7, 9, 12, .66);
     backdrop-filter: blur(2px);
     z-index: 100;
   }
@@ -630,7 +633,7 @@
   .progress-bar-wrap {
     width: 100%;
     height: 6px;
-    background: #ece7dc;
+    background: #222b39;
     border-radius: 999px;
     overflow: hidden;
     margin-bottom: 12px;
@@ -639,7 +642,7 @@
   .progress-bar-fill {
     width: 0%;
     height: 100%;
-    background: #2f2d28;
+    background: #dbe6ff;
     transition: width .25s ease;
   }
 
@@ -656,7 +659,7 @@
     left: 50%;
     transform: translateX(-50%) translateY(60px);
     background: var(--text);
-    color: #f8f5ee;
+    color: var(--on-accent);
     padding: 10px 14px;
     border-radius: 999px;
     font-family: 'IBM Plex Mono', monospace;
@@ -682,7 +685,7 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #d6cfbf;
+    background: #3c4759;
     border-radius: 999px;
   }
 
